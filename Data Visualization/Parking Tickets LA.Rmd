@@ -1,0 +1,545 @@
+---
+title: "Jason Maloney Final Project"
+output: pdf_document
+---
+```{r, echo = FALSE, results= 'hide'}
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+```
+```{r}
+#Import the data
+p <- read.csv("/Users/jasonmaloney/Desktop/streetsweeping-citations-2018-clean.csv")
+```
+
+```{r, echo = FALSE, results='hide', warning=FALSE, include = FALSE, message = FALSE}
+#load the required packages
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("lubridate")
+library(lubridate)
+install.packages("ggthemes")
+library(ggthemes)
+install.packages("leaflet")
+library(leaflet)
+install.packages("scales")
+library(scales)
+install.packages("ggplot2")
+library(ggplot2)
+install.packages("ggmap")
+library(ggmap)
+install.packages("RColorBrewer")
+library(RColorBrewer)
+install.packages("plyr")
+library(plyr)
+install.packages("dbplyr")
+library(dbplyr)
+install.packages("grid")
+library(grid)
+install.packages("gridExtra")
+library(gridExtra)
+```
+I am interested in finding the common times when tickets are issued. Based on my experience with street cleaning, times are most likely in the morning to inconvenience as few people as possible. 
+The time stamps are not numeric, so I removed the ":" and the seconds. 
+
+```{r, warning=FALSE}
+#change issue.time to integer to make a continuous 24hr scale
+p$time <- as.numeric(gsub(":","", p$issue.time))
+p$time <- p$time/100
+```
+
+I believe the proper method of looking at this data is a bar graph to see the trends. I initially used my new column, but it breaks up the x-axis in a weird way. So I decided to use the issue time to make it a smooth and somewhat continuous graph.
+
+**Ticket Issue Time Graph**
+
+```{r, t.b, fig.height=3}
+t.b <- ggplot(p, aes(x = issue.time)) +
+  geom_bar() +
+  ggtitle("Issue Time Graph") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Issue Time") +
+  scale_x_discrete(breaks = c("00:00:00", "00:30:00", "01:00:00", "01:30:00", "02:00:00",
+                              "02:30:00", "03:00:00", "03:30:00", "04:00:00", "04:30:00", 
+                              "05:00:00", "05:30:00", "06:00:00", "06:30:00", "07:00:00", 
+                              "07:30:00", "08:00:00", "08:30:00", "09:00:00", "09:30:00", 
+                              "10:00:00", "10:30:00", "11:00:00", "11:30:00", "12:00:00", 
+                              "12:30:00", "13:00:00", "13:30:00", "14:00:00", "14:30:00", 
+                              "15:00:00", "15:30:00", "16:00:00", "16:30:00", "17:00:00"), 
+                   labels = c("","","1:00","1:30","2:00","2:30","3:00","3:30","4:00","4:30",
+                              "5:00","5:30","6:00","6:30","7:00","7:30","8:00","8:30","9:00",
+                              "9:30","10:00","10:30","11:00","11:30","12:00","12:30","1:00",
+                              "1:30","2:00","2:30","3:00","3:30","4:00","4:30","5:00"))
+  
+t.b
+```
+\pagebreak
+
+I wanted to look at what make of cars were being ticketed most frequently. I created a data frame using the counts of the makes. I looked at the time Mean Issue Time and it is consistent with the bar chart above. Looking at the makes that are ticketed higher than average, we can see that Toyotas, Hondas and Fords are the most ticketed. 
+
+**Number of Tickets by Make of Car**
+```{r, warning=FALSE}
+make.p <- data.frame(table(p$car.make))
+pop.make.p <- data.frame(make.p, tapply(p$issue.time, p$car.make, mean))
+make.df <- data.frame(table(p$car.make))
+pop.make <- data.frame(make.df, tapply(p$time, p$car.make, mean))
+pop.make <- pop.make[make.df$Freq> mean(make.df$Freq),]
+colnames(pop.make) <- c("Make", "Freq", "Mean.Time")
+```
+
+
+**Scatter plot of ticket locations by issue time**
+```{r}
+make.plot <- ggplot(pop.make, aes(x = pop.make$Make, y = pop.make$Freq)) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_point(aes(color = pop.make$Mean.Time)) +
+  scale_color_gradientn(name = "Average Ticket\nIssue Time", colors = c("red", "blue")) +
+  ylab("Frequency") + xlab("Make of Car") 
+make.plot
+```
+\pagebreak
+
+I analyzed the enitirety of the ticket issue time from 2018 and find that the above results are common throughout LA County. Tickets are issued in the morning, primarily between 8 and noon.
+
+```{r, results='hide', message=FALSE}
+la_county <- get_map('los angeles', zoom = 10, type='toner')
+```
+
+**Scatter Plot of Tickets by Issue Time**
+```{r, warning = FALSE}
+#map of tickets and times
+p.map <- ggmap(la_county, zoom = 10) +
+  geom_point(data = p, aes(x = issue.address.lat, y = issue.address.lon, color = time), 
+             size = 0.1, alpha = 0.1) + 
+  scale_color_gradient(low = "darkblue", high = "yellow", name = "Issue Time")
+p.map
+```
+\pagebreak
+
+Machine Learning focused on daily/weekly information. Add a column of bins of week numbers.
+```{r}
+#add the week number column - uses lubridate package - there are 53 weeks, no week 0
+p$week.bin <- week(p$issue.date)
+p$freq <- 1
+```
+
+
+Data frame with Address, Lat, Lon, Fine Amount, Route ID, issue date, week number, and frequency of tickets issued.
+```{r}
+oi <- data.frame(p$issue.address, p$issue.address.lat, p$issue.address.lon, 
+                 p$violation.fine.amt, p$route.id, p$issue.date, p$week.bin, p$freq)
+
+#group rows by the common issue address
+oi <- group_by(oi, oi$p.issue.address)
+```
+
+I want to plot the most frequent addresses by time. Combine all common address observations and add respective frequency.
+
+```{r}
+#this has addresses - didn't combine all the addresses because there are different route IDs
+p.freq <- ddply(oi, .(p.issue.address, p.issue.address.lat, p.issue.address.lon, 
+                      p.freq, p.week.bin), summarize, freq = sum(p.freq))
+
+#want to focus on areas where tickets are issued frequently, more than 10 in a week
+most.freq <- p.freq[p.freq$p.freq > 10, ]
+```
+
+Combine common addresses and add their respective frequencies
+
+```{r}
+week.freq <-  ddply(oi, .(p.issue.address, p.issue.address.lat, p.issue.address.lon, 
+                          p.week.bin), summarize, freq = sum(p.freq))
+most.week.freq <- week.freq[week.freq$freq >= 10, ]
+```
+\pagebreak
+
+**Scatter plot of locations with more than 10 tickets issued in any given week**
+```{r, warning=FALSE}
+week.map <- ggmap(la_county, zoom = 20) +
+  geom_point(data = most.week.freq, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                        size = freq), 
+             alpha = 0.5, color = "blue")
+week.map
+```
+
+We can see that there are clear clusters of areas where many tickets are issued in a week. Those points that are darker represent multiple weeks of issued tickets greater than or equal to 10.
+
+It seems reasonable to look at a particular location within each locale and analyze further.
+\pagebreak
+
+**Info of all addresses on W 5th St**
+```{r}
+west.5 <- week.freq[grep("WEST 5TH STREET", week.freq$p.issue.address), ]
+```
+
+**Scatter plot of all addresses on W 5th St**
+```{r, warning = FALSE, message = FALSE}
+west.5.map <- get_map(location = c(lon = -118.2825, lat = 33.73984), zoom = 10, 
+                      type = 'roadmap')
+west.5.plot <- ggmap(west.5.map) +
+  geom_point(data = west.5, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                size = freq, color = p.week.bin), 
+             alpha = 0.5) +
+  scale_color_continuous(low = "darkblue", high = "yellow", name = "Week Number") +
+  ggtitle("West 5th Street")
+west.5.plot
+```
+\pagebreak
+
+West 5th St goes all the way to Downtown LA as well. I need to focus on the southern area in San Pedro. I found an address with high number of tickets in the San Pedro area and focused the map there.
+
+**Info of all addresses on W 5th St**
+```{r, message = FALSE}
+west.5s.map <- get_map(location = c(lon = -118.2815, lat = 33.7395), 
+                       zoom = 17, type = 'roadmap')
+```
+
+**Scatter plot of all addresses on south part of W 5th St **
+```{r, warning = FALSE}
+west.5s.plot <- ggmap(west.5s.map) +
+  geom_point(data = west.5, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                size = freq, color = p.week.bin)) +
+  scale_color_continuous(low = "darkblue", high = "yellow", name = "Week") 
+west.5s.plot
+```
+
+From this map it looks like the majority of tickets are issued in the middle to latter part of the year (week 40). There is a cluster in the beginning of the year as well. This can be a bit misleading because the data stops after week 42. So there were no tickets issued in the last 10 weeks of the year.
+
+\pagebreak
+Looking at the number of tickets by week to see if the colors on the map are truly representative of the data or just lots of overlapping of points that causes the dots to look so yellow.
+
+**Bar chart of number of tickets by week on W 5th St**
+```{r, warning = FALSE}
+west.5.tix <- ggplot(west.5, aes(x = p.week.bin, y = freq)) +
+  geom_col() +
+  scale_x_continuous(breaks = c(1,6,10,14,19,23,27,32,36,40,45,49), 
+                     labels = c("Jan", "Feb", "March", "April", "May", "June", 
+                                "July", "August", "Sept", "Oct", "Nov", "Dec")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("West 5th St") + xlab("") + ylab("Number of tickets") 
+west.5.tix
+```
+The analysis is confirmed, there are large clusters in the beginning of the year and the middle. Also, as noted above, the last tickets issued were in October.
+
+\pagebreak
+
+**Info of all addresses on Hawthorn Ave**
+
+```{r}
+hawthorn <- week.freq[grep("HAWTHORN AVE", week.freq$p.issue.address), ]
+```
+
+**Scatter plot of all addresses on Hawthorn Ave**
+
+```{r, warning = FALSE, message = FALSE}
+hawthorn.map <- get_map(location = c(lon = -118.3414, lat = 34.10033), 
+                        zoom = 16, type = 'roadmap')
+hawthorn.plot <- ggmap(hawthorn.map) +
+  geom_point(data = hawthorn, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                  size = freq, color = p.week.bin)) +
+  scale_color_continuous(low = "darkblue", high = "yellow", name = "Week") 
+hawthorn.plot
+```
+\pagebreak
+
+**Bar chart of number of tickets by week on Hawthorn Ave**
+
+```{r, warning = FALSE}
+hawthorn.tix <- ggplot(hawthorn, aes(x = p.week.bin, y = freq)) +
+  geom_col() +
+  scale_x_continuous(breaks = c(1,6,10,14,19,23,27,32,36,40,45,49), 
+                     labels = c("Jan", "Feb", "March", "April", "May", "June", 
+                                "July", "August", "Sept", "Oct", "Nov", "Dec")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Hawthorn Ave") + xlab("") + ylab("Number of tickets") 
+hawthorn.tix
+```
+\pagebreak
+
+**Info of all addresses on Etiwanda Ave**
+
+```{r, warning = FALSE}
+#San Pedro plot
+sp <- most.week.freq[between(most.week.freq$p.issue.address.lat,-118.63, -118.5),]
+sp <- most.week.freq[between(most.week.freq$p.issue.address.lon, 34.15, 34.2), ]
+sp[which.max(sp$freq), ] #Location with the most tickets in any one week 
+```
+
+How many tickets were issued on Etiwanda Ave in 2018?
+```{r}
+length(grep("ETIWANDA AVE", sp$p.issue.address))
+```
+
+**Scatter plot of addresses on Etiwanda**
+```{r, warning = FALSE, message=FALSE}
+etiwanda <- sp[grep("ETIWANDA AVE", sp$p.issue.address), ]
+etiwanda.map <- get_map(location = c(lon = -118.5308, lat = 34.16824), zoom = 17, 
+                        type = 'roadmap')
+etiwanda.plot <- ggmap(etiwanda.map) +
+  geom_point(data = etiwanda, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                  size = freq, color = p.week.bin), 
+               alpha = 0.5) +
+  scale_color_continuous(name = "Week", low = "darkblue", high = "yellow")
+etiwanda.plot
+```  
+\pagebreak
+
+**Bar chart of number of tickets by week on Etiwanda Ave**
+```{r, warning = FALSE}
+etiwanda.tix <- ggplot(etiwanda, aes(x = p.week.bin, y = freq)) +
+  geom_col() +
+  scale_x_continuous(breaks = c(1,6,10,14,19,23,27,32,36,40,45,49), 
+                     labels = c("Jan", "Feb", "March", "April", "May", "June", 
+                                "July", "August", "Sept", "Oct", "Nov", "Dec")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Etiwanda Ave") + xlab("") + ylab("Number of tickets") 
+etiwanda.tix
+```
+\pagebreak
+
+I noticed that there is a trend in our three selected areas that number of tickets issued per week ebb and flow as one would expect. All three locations have spikes in the number of tickets issued at the end of the summer. An app could use this seasonality to its advantage by preemptively warning customers of street sweeping during times where it is common for people to take time off from work.
+
+```{r}
+week.rev <- data.frame(tapply(p$violation.fine.amt, p$week.bin, sum))
+week.rev$week <- c(1:53)
+colnames(week.rev) <- c("rev", "week")
+```
+
+**Weekly revenue bar chart**
+```{r, warning = FALSE}
+w.rev.bar <- ggplot(week.rev, aes(x = week, y = rev)) +
+  geom_col(color = "black", fill = "white") +
+  geom_hline(yintercept = mean(week.rev$rev), color = "red") +
+  ylab("Total Weekly Revenue") +
+  scale_y_continuous(breaks = c(0, 250000, 500000, 750000,
+                                mean(week.rev$rev), 1000000), 
+                     labels = c("0", "250,000", "500,000", "750,000", 
+                                "Mean Weekly Revenue \n 818,903", "1,000,000")) +
+  ggtitle("Weekly Revenue from Street Sweeping Citations")
+w.rev.bar
+```
+This shows the information, but can be difficult to read, notice trends or discern where in the year we are.
+
+\pagebreak
+
+I analyzed the trend across LA County to see if it matches with the three most frequently ticketed areas. I first looked at the weekly revenue (fine amount)*(number of tickets) to see if the trend is consistent with the above findings.
+
+
+**Weekly revenue line graph**
+
+x-axis is divided by month to make it easier to read
+```{r, warning = FALSE}
+w.rev.plot <- ggplot(week.rev, aes(x = week, y = rev)) +
+  geom_line() +
+  geom_hline(yintercept = mean(week.rev$rev), color = "red") +
+  ylab("Total Weekly Revenue") +
+  scale_y_continuous(breaks = c(0, 250000, 500000, 750000, 
+                                mean(week.rev$rev), 1000000), 
+                     labels = c("0", "250,000", "500,000", "750,000", 
+                                "Mean Weekly Revenue", "1,000,000")) +
+  scale_x_continuous(breaks = c(1,6,10,14,19,23,27,32,36,40,45,49), 
+                     labels = c("Jan", "Feb", "March", "April", "May", 
+                                "June", "July", "August", "Sept", "Oct", 
+                                "Nov", "Dec")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Weekly Revenue")
+w.rev.plot
+```
+
+We see that there are spikes in revenue. The variance is fairly consistent through July then starts to vary more dramatically with peaks above the mean revenue at the end of the summer and the end of the year.
+
+
+\pagebreak
+
+**Locations with 10 or more tickets in a given week**
+
+```{r, warning=FALSE}
+week.map.sp <- ggmap(la_county, zoom = 20) +
+  geom_point(data = most.week.freq, aes(x = p.issue.address.lat, 
+                                        y = p.issue.address.lon, size = freq, 
+                                        color = p.week.bin), alpha = 0.5) +
+  scale_color_continuous(low = "darkblue", high = "yellow", name = "Week") +
+  ggtitle("Locations with 10 or More Street \n Sweeping Citations in at Least One Week")
+week.map.sp
+```
+
+The plot confirms that locations get the most tickets in a week in the middle or toward the end of the year.
+
+\pagebreak
+
+This is further evidenced when we look at all the locations, not just the ones with 10 or more in a week.
+
+**Scatter plot of all locations with frequency and Week**
+```{r, warning=FALSE}
+p.freq <- week.freq[week.freq$freq > 1, ]
+la.freq.map <- ggmap(la_county, zoom = 20) +
+  geom_point(data = p.freq, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                size = freq, color = p.week.bin), alpha = 0.1) +
+  scale_color_continuous(name = "Week", low = "darkblue", high = "yellow")
+la.freq.map
+```
+\pagebreak
+
+Is this pattern replicable or just in the places with the most tickets?
+
+Generate a random sample of 10% of the data
+```{r}
+rindex <- sample(1:dim(p)[1])
+summary(rindex)
+rindex.10 <- floor(0.1*dim(p)[1]) 
+rindex.10
+rand.sample <- p[rindex[1:rindex.10], ]
+
+#group by common addresses
+rand.sample <- group_by(rand.sample, rand.sample$issue.address)
+```
+
+```{r}
+#combine common addresses and add respective frequencies 
+rand.freq <- ddply(rand.sample, .(issue.address, issue.address.lat, 
+                                  issue.address.lon, freq, week.bin), summarize, freq = sum(freq))
+```
+
+**Scatter plot of the data with weeks and frequencies**
+```{r, sample.map, warning = FALSE, fig.height = 3}
+sample.map <- ggmap(la_county, zoom = 20) +
+  geom_point(data = rand.freq, aes(x = issue.address.lat, y = issue.address.lon, 
+                                   color = week.bin, size = freq), alpha = 0.1) +
+  scale_color_gradient(low = "darkblue", high = "yellow", name = "Week") +
+  ggtitle("Random Sample plot with frequency and week")
+sample.map
+```
+
+As we can see, the map above does have a lot of yellow and purple-ish yellow dots, indicating that our pattern is not unique to the most ticketed locations. There are the same clusters we saw previously, which confirms residents and tourists need to pay special attention when visiting these areas of LA.
+\pagebreak
+
+
+
+CODE THAT WAS NOT USED IN THE PRESENTATION
+
+
+**Monthly Revenue**
+```{r, warning = FALSE}
+#####monthly revenue plot
+month.rev <- data.frame(tapply(p$violation.fine.amt, p$issue.month, sum))
+month.rev$month <- c("January", "February", "March", "April", "May", 
+                     "June", "July", "August", "September", "October", 
+                     "November", "December")
+colnames(month.rev) <- c("rev", "month")
+```
+```{r}
+mean(month.rev$rev)
+```
+
+```{r}
+#######################################################
+# bar chart of month revenue and mean monthly revenue #
+#######################################################
+month.rev$month <- factor(month.rev$month, levels = month.name)
+m.rev.plot <- ggplot(month.rev, aes(x = month, y = rev)) +
+  geom_col(color = "black", fill = "white") +
+  geom_hline(yintercept = mean(month.rev$rev), color = "red") +
+  xlab("Month") + ylab("Monthly Revenue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  +
+  scale_y_continuous(breaks = c(0, 1e+06, 2e+06, 3e+06, 
+                                mean(month.rev$rev), 4e+06), 
+                     labels = c("0", "1 million", "2 million", "3 million", 
+                                "Mean Montly Revenue \n 3,616,822", "4 million"))
+m.rev.plot
+```
+\pagebreak
+
+Mean Ticket Issue Time
+```{r}
+mean(p$time)
+```
+
+What is the average number of tickets at one address?
+```{r}
+add <- data.frame(table(p$issue.address))
+mean(add$Freq)
+```
+
+Which address has the most parking tickets in 2018?
+```{r}
+add <- data.frame(table(p$issue.address))
+colnames(add) <- c("Address", "Freq")
+add[which.max(add$Freq),]
+```
+There are two talent agencies in the buidling.
+
+
+How many address on Commodore Sloat Dr where tickets were issued?
+```{r}
+length(grep("COMMODORE SLOAT DR", add$Address))
+```
+Commodore Sloat Drive is in Carthay Circle near Beverly Hills and La Brea. It is in the Little Ethiopia neighborhood. 
+
+I want to find all entries of Commodore Slote Drive and their respective number of tickets.
+```{r}
+comm <- p[grep("COMMODORE SLOAT DR", p$issue.address), ]
+length(comm$issue.address)  
+```
+The total number of tickets on Commodore Sloat Drive is 898.
+
+Sum of Fines on Commodore Sloat Drive
+```{r}
+sum(comm$violation.fine.amt)
+```
+
+The city made $65,554 in Street Sweeping Ticket Revenue from this street alone.
+
+Tickets are issued from 12:04 to 2:46 pm.
+```{r}
+range(comm$time)
+```
+
+I also looked into revenue for the county. At one point we were not positive who the target audience would be so we looked at multiple different avenues.
+
+```{r}
+#addresses with total fines
+p.fine <- ddply(oi, .(p.issue.address, p.issue.address.lat, p.issue.address.lon), 
+                summarize, violation.fine.amt = 
+                  sum(p.violation.fine.amt))
+```
+\pagebreak
+
+Range of fine amounts.
+```{r}
+range(p.fine$violation.fine.amt)
+```
+
+
+Focus on those addresses that make up more than $10,000 in annual revenue
+```{r}
+#data frame with annual fines over $10,000
+most.fine <- p.fine[p.fine$violation.fine.amt > 10000,]
+```
+
+**Scatter plot of all locations by fine**
+```{r}
+#plot of locations by fine amount - where are people paying more
+m.fine.map <- ggmap(la_county) +
+  geom_point(data = most.fine, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                   color = violation.fine.amt, 
+                                   size = violation.fine.amt)) +
+  scale_color_gradient(low = "red", high = "darkblue", name = "Annual Fine Amount") +
+  ggtitle("Annual Revenue over $10,000")
+m.fine.map
+```
+\pagebreak
+
+**Scatter plot of most fined locations among all fines**
+```{r, warning = FALSE}
+#plot of locations by fine amount - where are people paying more
+fine.map <- ggmap(la_county, zoom = 20) +
+  geom_point(data = p.fine, aes(x = p.issue.address.lat, y = p.issue.address.lon, color = violation.fine.amt), 
+             size = 0.1) +
+  scale_color_gradient(low = "yellow", high = "darkblue", name = "Annual Fine Amount") +
+  geom_point(data = most.fine, aes(x = p.issue.address.lat, y = p.issue.address.lon, 
+                                   color = violation.fine.amt, 
+                                   size = violation.fine.amt)) +
+  ggtitle("Annual Fine Amount by Location")
+fine.map
+```
+
+

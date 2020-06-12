@@ -1,0 +1,296 @@
+```{r}
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("lubridate")
+library(lubridate)
+install.packages("ggthemes")
+library(ggthemes)
+install.packages("leaflet")
+library(leaflet)
+library(scales)
+
+install.packages("proj4")
+library(proj4)
+```
+
+```{r}
+p <- read.csv("/Users/jasonmaloney/Desktop/streetsweeping-citations-2018-clean.csv")
+park
+
+#convert ft to lat/long - ft to km to lat/long
+ft.lat <- function(x){
+  km <- x/3280.84
+  lat <- km*9/1000
+  return(lat)
+}
+test <- park[1:100, ]
+test.lat <- park$Latitude[1:10]
+ft.lat(test.lat)
+```
+
+```{r}
+library(proj4)
+pj <- "+proj=lcc +lat_1=34.03333333333333 +lat_2=35.46666666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000 +y_0=500000.0000000002 +ellps=GRS80 +datum=NAD83 +to_meter=0.3048006096012192 no_defs"
+
+#Add converted latitude longitude to dataframe THIS WORKS!!! need package proj4
+test <- cbind(test, data.frame(project(data.frame(test$Latitude, test$Longitude), proj = pj, inverse = TRUE)))
+
+```
+
+
+```{r}
+#rename lat and lon
+names(test)[c(21, 22)] <- c('lat', 'lon') 
+```
+################
+CHANGE THE WHOLE DATA SET TO LAT AND LON
+```{r}
+pj <- "+proj=lcc +lat_1=34.03333333333333 +lat_2=35.46666666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000 +y_0=500000.0000000002 +ellps=GRS80 +datum=NAD83 +to_meter=0.3048006096012192 no_defs"
+park <- cbind(park, data.frame(project(data.frame(park$Latitude, park$Longitude), proj = pj, inverse = TRUE)))
+names(park)[c(21, 22)] <- c('lat', 'lon') 
+```
+
+```{r}
+#start to plot tickets...need to find a map of LA
+la <- map("county", regions = "california,los angeles")
+#this is a basic outline of the county - kinda shitty
+
+###testing plotting the points
+ggplot(test, aes(x = lon, y = lat)) + geom_point(aes(size = Issue.time))
+
+
+```
+
+```{r, warning=FALSE}
+#####
+#map of LA?
+####
+library(ggmap)
+la_county<-get_map('los angeles', zoom = 10, type='toner')
+
+meanlon <- mean(park$lon, na.rm = TRUE)
+meanlat <- mean(park$lat, na.rm = TRUE)
+
+p.map <- ggmap(la_county, zoom = 10)
+p.map <- p.map + geom_point(data = park, aes(x = lat, y = lon, color = Issue.time), size = 0.1, alpha = 0.1)
+p.map <- p.map + scale_color_gradient(low = "darkblue", high = "yellow", name = "Issue Time")
+p.map
+```
+```{r}
+#####
+#speculate whether non CA's get more tickets
+#####
+plate.state <- data.frame(table(p$plate.state))
+median.freq <- median(plate.state$Freq)
+median.freq
+mas.plate <- plate.state[plate.state$Freq > median.freq, ]
+ggplot(mas.plate,(aes(x = Var1, y = Freq))) +
+  geom_point()+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+```{r}
+###########
+#DESCRIPTIVE STATS
+###########
+#######
+p[which.max(p$issue.weekday),]
+
+#the time with the most issued tickets is ...
+df <- data.frame(table(p$issue.time))
+df[which.max(df$Freq), ]
+
+#######
+#want to find the average time per route
+dfroute <- data.frame(tapply(park$Issue.time, park$Route, mean))
+dfroute
+```
+
+```{r}
+#####
+#time vs month line chart
+#####
+t.l <- ggplot(p, aes(x = issue.month, y = issue.time)) +
+  geom_point()
+t.l
+
+
+```
+
+```{r}
+###########
+#clean shit up
+############
+p$issue.date <- gsub("T00:00:00", "", park$Issue.Date)
+```
+```{r}
+#this filters the time to only 2018, this is done for me when I bring in the csv file
+p.sc.2018 <- park.street.clean[which(substring(park.street.clean$Issue.Date,1,4)=='2018'), ]
+```
+```{r}
+mean(park$Issue.time, na.rm = TRUE)
+#mean time is 1009.377
+```
+```{r}
+########
+#Issue Time Bar Chart
+########
+time.bar <- ggplot(park, aes(x = Issue.time))
+time.bar <- time.bar + geom_bar()
+time.bar <- time.bar + ggtitle("Issue Time Bar Chart")
+time.bar <- time.bar + scale_x_continuous(name = "Issue Time", breaks = c(50,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1050,1100,1150,1200,1250,1300,1350,1400,1450,1500,1550,1600,1650,1700), labels = c("","1:00","1:30","2:00","2:30","3:00","3:30","4:00","4:30","5:00","5:30","6:00","6:30","7:00","7:30","8:00","8:30","9:00","9:30","10:00","10:30","11:00","11:30","12:00","12:30","1:00","1:30","2:00","2:30","3:00","3:30","4:00","4:30","5:00"), limits = c(0,1800))
+time.bar <- time.bar + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+time.bar
+```
+
+```{r}
+plot(p$issue.time)
+#############
+#bar chart using cleaned data
+##############
+issue.time.bar <- ggplot(p, aes(x = issue.time)) +
+  geom_bar() +
+  ggtitle("Issue Time Chart") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("Issue Time") +
+  scale_x_discrete(name = "Issue Time", breaks = c(50,100,150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1050,1100,1150,1200,1250,1300,1350,1400,1450,1500,1550,1600,1650,1700), labels = c("","1:00","1:30","2:00","2:30","3:00","3:30","4:00","4:30","5:00","5:30","6:00","6:30","7:00","7:30","8:00","8:30","9:00","9:30","10:00","10:30","11:00","11:30","12:00","12:30","1:00","1:30","2:00","2:30","3:00","3:30","4:00","4:30","5:00"), limits = c(0,2400))
+issue.time.bar
+
+```
+```{r}
+#####
+#add a month column
+
+```
+
+
+```{r}
+#####
+#Time Line Chart
+#####
+time.line <- ggplot(p, aes(x = issue.time, y = issue.date))
+time.line <- time.line + geom_boxplot()
+time.line <- time.line + ggtitle("Issue Time Bar Chart") + xlab("Issue Time")
+time.line
+
+
+
+#####
+#date bar chart
+```
+```{r}
+pdf <- data.frame(tapply(park$Issue.time, park$Issue.date, mean))
+pdf$date <- unique(order.park$Issue.Date)
+colnames(pdf) <- c("MeanTime", "date")
+
+order.park <- park[order(park$Issue.Date), ]
+
+#####
+#Mean Time Line Chart by Date
+#####
+mean.time.plot <- ggplot(pdf, aes(x = date, y = MeanTime))
+mean.time.plot <- mean.time.plot + geom_point()
+mean.time.plot <- mean.time.plot + ggtitle("Issue Time Scatter Plot") + xlab("Issue Date") + ylab("Mean Issue Time")
+mean.time.plot
+```
+```{r}
+pdf <- pdf[complete.cases(pdf$MeanTime),]
+
+median(pdf$MeanTime)
+summary(pdf)
+boxplot(pdf$MeanTime)
+```
+```{r}
+length(unique(park$Make))
+table(park$Make)
+
+make.p <- data.frame(table(p$car.make))
+mean(make.p$Freq)
+
+mean(as.numeric(p$issue.time))
+pop.make.p <- data.frame(make.p, tapply(p$issue.time, p$car.make, mean))
+
+make.df <- data.frame(table(park$Make))
+plot(x = make.df$Var1, y = make.df$Freq)
+
+median(make.df$Freq)
+mean(make.df$Freq)
+
+pop.make <- data.frame(make.df, tapply(park$Issue.time, park$Make,mean))
+pop.make <- pop.make[make.df$Freq> mean(make.df$Freq),]
+colnames(pop.make) <- c("Make", "Freq", "Mean.Time")
+plot(x = pop.make$Var1, y = pop.make$Freq) 
+
+#I want to include those entries' mean time
+tapply(park$Issue.time, park$Make, mean)
+
+hcolor <- colorRampPalette(rev(brewer.pal(11, 'Spectral')), space = 'Lab')
+make.plot <- ggplot(pop.make, aes(x = pop.make$Make, y = pop.make$Freq)) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_point(aes(color = pop.make$Mean.Time)) +
+  scale_color_gradientn(name = "Average Ticket\nIssue Time", colors = c("red", "blue")) +
+  ylab("Frequency") + xlab("Make of Car") 
+make.plot
+
+#lot of toyotas and hondas and ford get tix...probably the most owned make in downtown areas - not too many audi, cadi probably most owned in neighborhoods that have garages
+```
+```{r}
+#####monthly revenue plot
+month.rev <- data.frame(tapply(p$violation.fine.amt, p$issue.month, sum))
+month.rev$month <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+colnames(month.rev) <- c("rev", "month")
+
+mean(month.rev$tapply.p.violation.fine.amt..p.issue.month..sum.)
+
+########
+#scatter plot of month revenue and mean monthly revenue
+########
+month.rev$month <- factor(month.rev$month, levels = month.name)
+m.rev.plot <- ggplot(month.rev, aes(x = month, y = rev)) +
+  geom_col(color = "black", fill = "white") +
+  geom_hline(yintercept = mean(month.rev$rev), color = "red") +
+  xlab("Month") + ylab("Monthly Revenue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  +
+  scale_y_continuous(breaks = c(0, 1e+06, 2e+06, 3e+06, mean(month.rev$rev), 4e+06), labels = c("0", "1 million", "2 million", "3 million", "Mean Revenue", "4 million"))
+m.rev.plot
+```
+
+DAILY REVENUE
+```{r}
+day.rev <- data.frame(tapply(p$violation.fine.amt, p$issue.date, sum))
+
+```
+
+
+
+```{r}
+########
+#RandomForest
+########
+install.packages("randomForest")
+library(randomForest)
+
+test <- park[1:50,]
+test <- test[,-6]
+test <- test[,-8]
+test <- na.omit(test)
+
+m <- lm(Location ~ Issue.Date + Issue.time, data = test)
+summary(m)
+lm(Location ~ ., data = test)
+```
+
+
+```{r}
+medianwithoutNA <- function(x){
+  median(x[which(!is.na(x))])
+}
+apply(p.sc.2018, )
+
+median(p.sc.2018$Issue.Date, na.rm = TRUE)
+sum <- function(x){
+  s <- sum(x)
+  return(x)
+}
+sum(p3$freq)
+
+```
